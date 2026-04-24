@@ -93,6 +93,7 @@ interface RedditPost {
   num_comments: number;
   is_self?: boolean;
   domain?: string;
+  stickied?: boolean;
 }
 
 export async function fetchSubreddit(name: string, limit = 20): Promise<AggregatedItem[]> {

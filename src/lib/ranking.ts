@@ -17,7 +17,6 @@ function recencyFactor(createdAt: number, halfLifeMs: number): number {
  */
 export function computeHomeRanking(items: AggregatedItem[]): AggregatedItem[] {
   const hnReddit = items.filter((i) => i.source !== "rss");
-  const rss = items.filter((i) => i.source === "rss");
 
   const trendTitles = hnReddit.slice(0, 60).map((i) => i.title);
   const vocab = buildTrendVocabulary(trendTitles, 100);
