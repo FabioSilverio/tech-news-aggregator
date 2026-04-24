@@ -13,10 +13,7 @@ export default async function Page() {
     fetchRssFeed("https://techcrunch.com/feed/", "TechCrunch"),
   ]);
 
-  const vergeItems = verge.map((v) => ({ ...v, sourceLabel: "The Verge" }));
-  const tcItems = tc.map((v) => ({ ...v, sourceLabel: "TechCrunch" }));
-
-  const merged = [...hn, ...rdTech, ...rdSing, ...vergeItems, ...tcItems];
+  const merged = [...hn, ...rdTech, ...rdSing, ...verge, ...tc];
   const homeItems = computeHomeRanking(merged);
   const chronoItems = chronological(merged);
 
