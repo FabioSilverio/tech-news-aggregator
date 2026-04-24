@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+:root {
+  --reddit-orange: #ff4500;
+  --reddit-orange-dark: #e63e00;
+  --bg-page: #f6f7f8;
+  --text-title: #1a1a1b;
+  --text-meta: #7c7c7c;
+}
+
+body {
+  background: var(--bg-page);
+  color: var(--text-title);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+}
