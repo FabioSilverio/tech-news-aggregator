@@ -25,7 +25,6 @@ function Row({
   rank: number;
   highlightComments: boolean;
 }) {
-  const initials = item.sourceLabel.slice(0, 2).toUpperCase();
   return (
     <article className="flex gap-3 border-b border-gray-200 bg-white px-4 py-4 sm:gap-4 sm:px-6">
       <div className="flex w-14 shrink-0 flex-col items-center gap-1 text-gray-400">
@@ -43,9 +42,9 @@ function Row({
         </div>
       </div>
 
-      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded bg-gray-100">
-        {item.thumbnail ? (
-          // eslint-disable-next-line @next/next/no-img-element
+      {item.thumbnail ? (
+        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded bg-gray-100">
+          {/* eslint-disable-next-line @next/next/no-img-element -- URLs dinâmicas de feeds/OG */}
           <img
             src={item.thumbnail}
             alt=""
@@ -53,12 +52,8 @@ function Row({
             loading="lazy"
             referrerPolicy="no-referrer"
           />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-[10px] font-bold text-gray-400">
-            {initials}
-          </div>
-        )}
-      </div>
+        </div>
+      ) : null}
 
       <div className="min-w-0 flex-1">
         <a

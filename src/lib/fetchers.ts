@@ -227,6 +227,49 @@ function resolveItemUrl(link: string | undefined, base?: string): string | null 
   return null;
 }
 
+/** Enclosure, media:thumbnail, media:content (imagem), itunes:image, depois 1.ª imagem no HTML. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function pickRssHeroImage(item: any, fullText: string): string | undefined {
+  if (item?.enclosure?.url) {
+    const t: string = item.enclosure.type ?? "";
+    if (t.startsWith("image/") || /\.(jpe?g|png|webp|gif|avif)(?:$|\?)/i.test(String(item.enclosure.url))) {
+      return item.enclosure.url;
+    }
+  }
+  const mc = item["media:content"] as
+    | { $?: { url?: string; type?: string; medium?: string } }
+    | Array<{ $: { url?: string; type?: string; medium?: string } }>
+    | undefined;
+  if (mc) {
+    const m = Array.isArray(mc) ? mc[0]?.$ : (mc as { $?: { url?: string; type?: string; medium?: string } }).$;
+    if (m?.url) {
+      const t = m.type || m.medium || "";
+      if (t.startsWith("image/") || t === "image" || t.includes("image/")) {
+        return m.url;
+      }
+    }
+  }
+  const mthumb = (item["media:thumbnail"] as { $?: { url?: string } } | undefined)?.$?.url;
+  if (mthumb) return mthumb;
+  const itunes = item["itunes:image"];
+  if (typeof itunes === "string") return itunes;
+  if (itunes?.$?.href) return itunes.$.href;
+  if (itunes?.$ && typeof (itunes as { $: { href: string } }).$ === "string") {
+    return (itunes as unknown as { $: string }).$;
+  }
+  const m1 = fullText.match(
+    /https?:\/\/[^\s"'<>]+\.(?:jpe?g|png|webp|gif|avif)(?:\?[^"'<>s]*)?/i,
+  );
+  if (m1?.[0] && !/pixel|1x1|spacer|blank\./i.test(m1[0])) {
+    return m1[0];
+  }
+  const m2 = fullText.match(
+    /(?:data-src|data-lazy|data-original)=["'](https?:\/\/[^"']+\.(?:jpe?g|png|webp|gif|avif)[^"']*)/i,
+  );
+  if (m2?.[1]) return m2[1].split(" ")[0];
+  return undefined;
+}
+
 /**
  * `rss-parser` + `parseURL` usa Node http(s) e costuma falhar em Vercel (HTTPS / redirects).
  * Buscamos o XML com `fetch` e usamos `parseString`.
@@ -277,10 +320,7 @@ export async function fetchRssFeed(
       const created =
         (item.pubDate ? new Date(item.pubDate).getTime() : Date.now()) || Date.now();
       const content = item.contentSnippet ?? item.content ?? "";
-      const media =
-        (item as { enclosure?: { url?: string } }).enclosure?.url ||
-        (item as { "media:content"?: { $?: { url?: string } } })["media:content"]?.$?.url;
-      const imgMatch = content.match(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^"'<>s]*)?/i);
+      const thumb = pickRssHeroImage(item, content);
 
       out.push({
         id: `rss-${sourceLabel}-${i++}-${link.slice(-40)}`.replace(/[^\w-]/g, "-"),
@@ -293,7 +333,7 @@ export async function fetchRssFeed(
         score: 0,
         comments: 0,
         createdAt: created,
-        thumbnail: media || imgMatch?.[0],
+        thumbnail: thumb,
         rankScore: 0,
       });
     }

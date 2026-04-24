@@ -45,6 +45,21 @@ export const SUBREDDITS = ["technews", "singularity"] as const;
  */
 export const HOME_INTERLEAVE_HN_REDDIT_RSS = true;
 
+/**
+ * Busca `og:image` / `twitter:image` no HTML do artigo (HN sem thumb, links externos, etc.).
+ * Limites agressivos para caber no tempo de função serverless (Vercel).
+ */
+export const IMAGE_OG = {
+  /** Quantas URLs distintas tentar buscar (artigos ainda sem thumb). */
+  maxDistinctUrls: 16,
+  /** Buscas em paralelo. */
+  concurrency: 4,
+  /** Timeout por fetch do HTML. */
+  timeoutMs: 3000,
+  /** Só o começo do HTML (bytes aprox. via slice em chars) para achar as meta tags. */
+  headChars: 180_000,
+} as const;
+
 /** Reddit exige User-Agent de navegador; APIs genéricas retornam 403 em muitos hosts. */
 export const BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";

@@ -1,6 +1,7 @@
 import { FeedShell } from "@/components/FeedShell";
 import { FEED_LIMITS, RSS_FEEDS } from "@/lib/feedConfig";
 import { fetchHackerNews, fetchRssFeed, fetchSubreddit } from "@/lib/fetchers";
+import { enrichItemsWithOgImages } from "@/lib/ogImage";
 import { chronological, computeHomeRanking } from "@/lib/ranking";
 
 export const revalidate = 300;
@@ -14,7 +15,8 @@ export default async function Page() {
     fetchRssFeed(RSS_FEEDS[1].url, RSS_FEEDS[1].label, FEED_LIMITS.rssPerFeed),
   ]);
 
-  const merged = [...hn, ...rdTech, ...rdSing, ...verge, ...tc];
+  const raw = [...hn, ...rdTech, ...rdSing, ...verge, ...tc];
+  const merged = await enrichItemsWithOgImages(raw);
   const homeItems = computeHomeRanking(merged);
   const chronoItems = chronological(merged);
 
