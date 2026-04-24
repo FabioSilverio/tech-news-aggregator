@@ -1,4 +1,5 @@
 import { FeedShell } from "@/components/FeedShell";
+import { FEED_LIMITS, RSS_FEEDS } from "@/lib/feedConfig";
 import { fetchHackerNews, fetchRssFeed, fetchSubreddit } from "@/lib/fetchers";
 import { chronological, computeHomeRanking } from "@/lib/ranking";
 
@@ -6,11 +7,11 @@ export const revalidate = 300;
 
 export default async function Page() {
   const [hn, rdTech, rdSing, verge, tc] = await Promise.all([
-    fetchHackerNews(40),
-    fetchSubreddit("technews", 22),
-    fetchSubreddit("singularity", 22),
-    fetchRssFeed("https://www.theverge.com/rss/index.xml", "The Verge"),
-    fetchRssFeed("https://techcrunch.com/feed/", "TechCrunch"),
+    fetchHackerNews(FEED_LIMITS.hackerNews),
+    fetchSubreddit("technews", FEED_LIMITS.redditPerSub),
+    fetchSubreddit("singularity", FEED_LIMITS.redditPerSub),
+    fetchRssFeed(RSS_FEEDS[0].url, RSS_FEEDS[0].label, FEED_LIMITS.rssPerFeed),
+    fetchRssFeed(RSS_FEEDS[1].url, RSS_FEEDS[1].label, FEED_LIMITS.rssPerFeed),
   ]);
 
   const merged = [...hn, ...rdTech, ...rdSing, ...verge, ...tc];

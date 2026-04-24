@@ -193,7 +193,7 @@ export function FeedShell({
       <main className="mx-auto max-w-5xl border-x border-gray-200 bg-white shadow-sm">
         <p className="border-b border-gray-100 px-4 py-2 text-xs text-gray-500 sm:px-6">
           {tab === "home"
-            ? "Ordenado por relevância: votos HN/Reddit + frescor; artigos RSS ponderados por similaridade com os títulos em alta."
+            ? "Destaques: pontuação por fonte (votos, comentários, similaridade com tendências) e listagem HN → Reddit → RSS em ciclo para misturar as origens no topo."
             : "Todas as fontes misturadas por data (mais recentes primeiro)."}
         </p>
         {list.length === 0 ? (

@@ -1,8 +1,8 @@
 import Parser from "rss-parser";
+import { BROWSER_USER_AGENT, SUBREDDITS } from "./feedConfig";
 import type { AggregatedItem } from "./types";
 
-const UA =
-  "Mozilla/5.0 (compatible; TechNewsAggregator/1.0; +https://github.com/tech-news-aggregator)";
+const JSON_UA = `${BROWSER_USER_AGENT} (TechNewsFeed/1.0; +https://github.com/vercel)`;
 
 function domainFromUrl(url: string): string {
   try {
@@ -11,6 +11,29 @@ function domainFromUrl(url: string): string {
   } catch {
     return "";
   }
+}
+
+function decodeRedditImageUrl(maybe: string | undefined): string | undefined {
+  if (!maybe) return undefined;
+  return maybe.replace(/&amp;/g, "&");
+}
+
+function pickRedditThumb(p: RedditPost): string | undefined {
+  const pvw = p.preview;
+  if (pvw?.images?.[0]?.resolutions?.length) {
+    const r = pvw.images[0].resolutions;
+    const best = r[Math.max(0, r.length - 1)];
+    const u = best?.url && decodeRedditImageUrl(best.url);
+    if (u) return u;
+  }
+  if (pvw?.images?.[0]?.source?.url) {
+    return decodeRedditImageUrl(pvw.images[0].source.url);
+  }
+  const t = p.thumbnail;
+  if (t && t !== "self" && t !== "default" && t !== "nsfw" && t !== "image" && t.startsWith("http")) {
+    return t;
+  }
+  return undefined;
 }
 
 export interface HNStory {
@@ -24,14 +47,12 @@ export interface HNStory {
   kids?: number[];
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> {
+async function fetchJson<T>(url: string): Promise<T | null> {
   try {
     const res = await fetch(url, {
-      ...init,
       headers: {
-        "User-Agent": UA,
+        "User-Agent": JSON_UA,
         Accept: "application/json",
-        ...(init?.headers as Record<string, string>),
       },
       next: { revalidate: 300 },
     });
@@ -42,7 +63,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> 
   }
 }
 
-export async function fetchHackerNews(limit = 35): Promise<AggregatedItem[]> {
+export async function fetchHackerNews(limit: number): Promise<AggregatedItem[]> {
   const ids = await fetchJson<number[]>(
     "https://hacker-news.firebaseio.com/v0/topstories.json",
   );
@@ -94,13 +115,58 @@ interface RedditPost {
   is_self?: boolean;
   domain?: string;
   stickied?: boolean;
+  preview?: {
+    images?: Array<{
+      source?: { url?: string };
+      resolutions?: Array<{ url?: string; width: number; height: number }>;
+    }>;
+  };
 }
 
-export async function fetchSubreddit(name: string, limit = 20): Promise<AggregatedItem[]> {
-  const data = await fetchJson<RedditListing>(
-    `https://www.reddit.com/r/${name}/hot.json?limit=${limit}`,
-    { headers: { "User-Agent": UA } },
-  );
+const redditBrowserHeaders: HeadersInit = {
+  "User-Agent": BROWSER_USER_AGENT,
+  Accept: "application/json",
+  "Accept-Language": "en-US,en;q=0.9",
+  Referer: "https://www.reddit.com/",
+};
+
+/**
+ * API pública do Reddit: sem User-Agent de navegador, respostas 403 são comuns
+ * (sobretudo em datacenters / Vercel). Tentamos `www` e `old` como espelho.
+ */
+async function fetchSubredditFromReddit(
+  name: (typeof SUBREDDITS)[number],
+  limit: number,
+): Promise<RedditListing | null> {
+  const path = `/r/${name}/hot.json?limit=${Math.min(100, limit)}&raw_json=1`;
+  const bases = [
+    "https://www.reddit.com",
+    "https://old.reddit.com",
+    "https://new.reddit.com",
+  ] as const;
+
+  for (const b of bases) {
+    try {
+      const res = await fetch(`${b}${path}`, {
+        headers: redditBrowserHeaders,
+        next: { revalidate: 300 },
+        redirect: "follow",
+      });
+      if (res.ok) {
+        return (await res.json()) as RedditListing;
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+export async function fetchSubreddit(
+  name: (typeof SUBREDDITS)[number],
+  limit: number,
+): Promise<AggregatedItem[]> {
+  const data = await fetchSubredditFromReddit(name, limit);
   const children = data?.data?.children ?? [];
   const out: AggregatedItem[] = [];
   for (const { data: p } of children) {
@@ -108,29 +174,19 @@ export async function fetchSubreddit(name: string, limit = 20): Promise<Aggregat
     const url = p.url?.startsWith("http")
       ? p.url
       : `https://www.reddit.com${p.permalink}`;
-    let thumb = p.thumbnail;
-    if (
-      !thumb ||
-      thumb === "self" ||
-      thumb === "default" ||
-      thumb === "nsfw" ||
-      thumb === "image"
-    ) {
-      thumb = undefined;
-    }
-    const ups = typeof p.ups === "number" ? p.ups : p.score ?? 0;
+    const ups = typeof p.ups === "number" && p.ups > 0 ? p.ups : p.score ?? 0;
     out.push({
       id: `rd-${name}-${p.id}`,
       source: "reddit",
       sourceLabel: `r/${name}`,
       title: p.title,
       url,
-      domain: p.domain ?? domainFromUrl(url),
+      domain: p.domain?.replace(/^self\./, "") || domainFromUrl(url),
       author: p.author,
       score: ups,
       comments: p.num_comments ?? 0,
       createdAt: p.created_utc * 1000,
-      thumbnail: thumb,
+      thumbnail: pickRedditThumb(p),
       rankScore: 0,
     });
   }
@@ -138,34 +194,101 @@ export async function fetchSubreddit(name: string, limit = 20): Promise<Aggregat
 }
 
 const parser = new Parser({
-  headers: { "User-Agent": UA },
-  timeout: 12000,
+  timeout: 20000,
+  headers: { "User-Agent": BROWSER_USER_AGENT, Accept: "application/rss+xml, */*" },
+  requestOptions: { timeout: 20000 },
 });
 
+function feedBaseLink(feed: Parser.Output<ItemLike>): string | undefined {
+  const l = feed.link;
+  if (typeof l === "string") return l;
+  if (l && typeof l === "object" && "href" in l) return (l as { href?: string }).href;
+  if (Array.isArray(l) && l[0]) {
+    const f = l[0];
+    if (typeof f === "string") return f;
+    if (f && typeof f === "object" && "href" in f) return (f as { href: string }).href;
+  }
+  return undefined;
+}
+
+type ItemLike = { link?: string; id?: string };
+
+function resolveItemUrl(link: string | undefined, base?: string): string | null {
+  if (!link) return null;
+  if (/^https?:\/\//i.test(link)) return link;
+  if (link.startsWith("//")) return `https:${link}`;
+  if (base) {
+    try {
+      return new URL(link, base).href;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * `rss-parser` + `parseURL` usa Node http(s) e costuma falhar em Vercel (HTTPS / redirects).
+ * Buscamos o XML com `fetch` e usamos `parseString`.
+ */
 export async function fetchRssFeed(
   feedUrl: string,
   sourceLabel: string,
+  itemLimit = 40,
 ): Promise<AggregatedItem[]> {
+  const fallbacks: string[] = [feedUrl];
+  if (feedUrl.includes("theverge.com")) {
+    fallbacks.push("https://theverge.com/rss/index.xml");
+  }
+
+  let text: string | null = null;
+  for (const url of fallbacks) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": BROWSER_USER_AGENT,
+          Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+        },
+        next: { revalidate: 300 },
+        redirect: "follow",
+      });
+      if (res.ok) {
+        text = await res.text();
+        break;
+      }
+    } catch {
+      /* next */
+    }
+  }
+  if (!text) return [];
+
   try {
-    const feed = await parser.parseURL(feedUrl);
+    const feed = await parser.parseString(text);
+    const base = feedBaseLink(feed);
     const out: AggregatedItem[] = [];
     let i = 0;
     for (const item of feed.items ?? []) {
-      if (!item.title || !item.link) continue;
+      if (out.length >= itemLimit) break;
+      if (!item.title) continue;
+      const raw = item.link ?? (item as { id?: string }).id;
+      const link = resolveItemUrl(raw, base) ?? (typeof raw === "string" && raw.startsWith("http") ? raw : null);
+      if (!link) continue;
+
       const created =
         (item.pubDate ? new Date(item.pubDate).getTime() : Date.now()) || Date.now();
+      const content = item.contentSnippet ?? item.content ?? "";
       const media =
         (item as { enclosure?: { url?: string } }).enclosure?.url ||
         (item as { "media:content"?: { $?: { url?: string } } })["media:content"]?.$?.url;
-      const content = item.contentSnippet ?? item.content ?? "";
-      const imgMatch = content.match(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp)/i);
+      const imgMatch = content.match(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|webp|gif)(?:\?[^"'<>s]*)?/i);
+
       out.push({
-        id: `rss-${sourceLabel}-${i++}-${created}`,
+        id: `rss-${sourceLabel}-${i++}-${link.slice(-40)}`.replace(/[^\w-]/g, "-"),
         source: "rss",
         sourceLabel,
         title: item.title.trim(),
-        url: item.link,
-        domain: domainFromUrl(item.link),
+        url: link,
+        domain: domainFromUrl(link),
         author: item.creator ?? item.author,
         score: 0,
         comments: 0,
