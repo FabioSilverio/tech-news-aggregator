@@ -1,4 +1,10 @@
 /**
+ * Revalidação ISR: página (Destaques + cronológico) e fetches alinhados (meia em meia hora).
+ */
+export const PAGE_REVALIDATE_SEC = 30 * 60;
+export const DATA_FETCH_REVALIDATE_SEC = PAGE_REVALIDATE_SEC;
+
+/**
  * Parâmetros de agregação e de rankeamento (aba Destaques).
  * Todos ajustáveis; somas por tipo ≈ 1.0.
  */

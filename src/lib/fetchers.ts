@@ -1,5 +1,5 @@
 import Parser from "rss-parser";
-import { BROWSER_USER_AGENT, SUBREDDITS } from "./feedConfig";
+import { BROWSER_USER_AGENT, DATA_FETCH_REVALIDATE_SEC, SUBREDDITS } from "./feedConfig";
 import type { AggregatedItem } from "./types";
 
 const JSON_UA = `${BROWSER_USER_AGENT} (TechNewsFeed/1.0; +https://github.com/vercel)`;
@@ -54,7 +54,7 @@ async function fetchJson<T>(url: string): Promise<T | null> {
         "User-Agent": JSON_UA,
         Accept: "application/json",
       },
-      next: { revalidate: 300 },
+      next: { revalidate: DATA_FETCH_REVALIDATE_SEC },
     });
     if (!res.ok) return null;
     return (await res.json()) as T;
@@ -64,35 +64,39 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 }
 
 export async function fetchHackerNews(limit: number): Promise<AggregatedItem[]> {
-  const ids = await fetchJson<number[]>(
-    "https://hacker-news.firebaseio.com/v0/topstories.json",
-  );
-  if (!ids?.length) return [];
-  const slice = ids.slice(0, limit);
-  const stories = await Promise.all(
-    slice.map((id) =>
-      fetchJson<HNStory>(`https://hacker-news.firebaseio.com/v0/item/${id}.json`),
-    ),
-  );
-  const out: AggregatedItem[] = [];
-  for (const s of stories) {
-    if (!s?.title) continue;
-    const url = s.url ?? `https://news.ycombinator.com/item?id=${s.id}`;
-    out.push({
-      id: `hn-${s.id}`,
-      source: "hackernews",
-      sourceLabel: "Hacker News",
-      title: s.title,
-      url,
-      domain: domainFromUrl(url) || "news.ycombinator.com",
-      author: s.by,
-      score: s.score ?? 0,
-      comments: s.descendants ?? (s.kids?.length ?? 0),
-      createdAt: (s.time ?? 0) * 1000,
-      rankScore: 0,
-    });
+  try {
+    const ids = await fetchJson<number[]>(
+      "https://hacker-news.firebaseio.com/v0/topstories.json",
+    );
+    if (!ids?.length) return [];
+    const slice = ids.slice(0, limit);
+    const settled = await Promise.allSettled(
+      slice.map((id) => fetchJson<HNStory>(`https://hacker-news.firebaseio.com/v0/item/${id}.json`)),
+    );
+    const out: AggregatedItem[] = [];
+    for (const r of settled) {
+      if (r.status !== "fulfilled" || r.value == null) continue;
+      const s = r.value;
+      if (!s?.title) continue;
+      const url = s.url ?? `https://news.ycombinator.com/item?id=${s.id}`;
+      out.push({
+        id: `hn-${s.id}`,
+        source: "hackernews",
+        sourceLabel: "Hacker News",
+        title: s.title,
+        url,
+        domain: domainFromUrl(url) || "news.ycombinator.com",
+        author: s.by,
+        score: s.score ?? 0,
+        comments: s.descendants ?? (s.kids?.length ?? 0),
+        createdAt: (s.time ?? 0) * 1000,
+        rankScore: 0,
+      });
+    }
+    return out;
+  } catch {
+    return [];
   }
-  return out;
 }
 
 interface RedditListing {
@@ -149,7 +153,7 @@ async function fetchSubredditFromReddit(
     try {
       const res = await fetch(`${b}${path}`, {
         headers: redditBrowserHeaders,
-        next: { revalidate: 300 },
+        next: { revalidate: DATA_FETCH_REVALIDATE_SEC },
         redirect: "follow",
       });
       if (res.ok) {
@@ -166,31 +170,36 @@ export async function fetchSubreddit(
   name: (typeof SUBREDDITS)[number],
   limit: number,
 ): Promise<AggregatedItem[]> {
-  const data = await fetchSubredditFromReddit(name, limit);
-  const children = data?.data?.children ?? [];
-  const out: AggregatedItem[] = [];
-  for (const { data: p } of children) {
-    if (!p?.title || p.stickied) continue;
-    const url = p.url?.startsWith("http")
-      ? p.url
-      : `https://www.reddit.com${p.permalink}`;
-    const ups = typeof p.ups === "number" && p.ups > 0 ? p.ups : p.score ?? 0;
-    out.push({
-      id: `rd-${name}-${p.id}`,
-      source: "reddit",
-      sourceLabel: `r/${name}`,
-      title: p.title,
-      url,
-      domain: p.domain?.replace(/^self\./, "") || domainFromUrl(url),
-      author: p.author,
-      score: ups,
-      comments: p.num_comments ?? 0,
-      createdAt: p.created_utc * 1000,
-      thumbnail: pickRedditThumb(p),
-      rankScore: 0,
-    });
+  try {
+    const data = await fetchSubredditFromReddit(name, limit);
+    const children = data?.data?.children ?? [];
+    const out: AggregatedItem[] = [];
+    for (const c of children) {
+      const p = c?.data;
+      if (!p?.title || p.stickied) continue;
+      const url = p.url?.startsWith("http")
+        ? p.url
+        : `https://www.reddit.com${p.permalink}`;
+      const ups = typeof p.ups === "number" && p.ups > 0 ? p.ups : p.score ?? 0;
+      out.push({
+        id: `rd-${name}-${p.id}`,
+        source: "reddit",
+        sourceLabel: `r/${name}`,
+        title: p.title,
+        url,
+        domain: p.domain?.replace(/^self\./, "") || domainFromUrl(url),
+        author: p.author,
+        score: ups,
+        comments: p.num_comments ?? 0,
+        createdAt: p.created_utc * 1000,
+        thumbnail: pickRedditThumb(p),
+        rankScore: 0,
+      });
+    }
+    return out;
+  } catch {
+    return [];
   }
-  return out;
 }
 
 const parser = new Parser({
@@ -292,7 +301,7 @@ export async function fetchRssFeed(
           "User-Agent": BROWSER_USER_AGENT,
           Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
         },
-        next: { revalidate: 300 },
+        next: { revalidate: DATA_FETCH_REVALIDATE_SEC },
         redirect: "follow",
       });
       if (res.ok) {

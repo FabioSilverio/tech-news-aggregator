@@ -131,23 +131,31 @@ async function runWithConcurrency<T>(
  * URLs distintas são buscadas no máximo `IMAGE_OG.maxDistinctUrls` vezes.
  */
 export async function enrichItemsWithOgImages(items: AggregatedItem[]): Promise<AggregatedItem[]> {
-  const needOg = new Set<string>();
-  for (const it of items) {
-    if (it.thumbnail) continue;
-    if (canTryOgForUrl(it.url)) needOg.add(it.url);
+  try {
+    const needOg = new Set<string>();
+    for (const it of items) {
+      if (it.thumbnail) continue;
+      if (canTryOgForUrl(it.url)) needOg.add(it.url);
+    }
+    const urls = [...needOg].slice(0, IMAGE_OG.maxDistinctUrls);
+    if (urls.length === 0) return items;
+
+    const urlToImage = new Map<string, string>();
+    await runWithConcurrency(urls, IMAGE_OG.concurrency, async (u) => {
+      try {
+        const img = await fetchSingleOgImage(u);
+        if (img) urlToImage.set(u, img);
+      } catch {
+        /* nunca derruba o carregamento do feed */
+      }
+    });
+
+    return items.map((it) => {
+      if (it.thumbnail) return it;
+      const t = urlToImage.get(it.url);
+      return t ? { ...it, thumbnail: t } : it;
+    });
+  } catch {
+    return items;
   }
-  const urls = [...needOg].slice(0, IMAGE_OG.maxDistinctUrls);
-  if (urls.length === 0) return items;
-
-  const urlToImage = new Map<string, string>();
-  await runWithConcurrency(urls, IMAGE_OG.concurrency, async (u) => {
-    const img = await fetchSingleOgImage(u);
-    if (img) urlToImage.set(u, img);
-  });
-
-  return items.map((it) => {
-    if (it.thumbnail) return it;
-    const t = urlToImage.get(it.url);
-    return t ? { ...it, thumbnail: t } : it;
-  });
 }

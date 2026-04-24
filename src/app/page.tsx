@@ -1,19 +1,15 @@
 import { FeedShell } from "@/components/FeedShell";
-import { FEED_LIMITS, RSS_FEEDS } from "@/lib/feedConfig";
-import { fetchHackerNews, fetchRssFeed, fetchSubreddit } from "@/lib/fetchers";
 import { enrichItemsWithOgImages } from "@/lib/ogImage";
+import { loadAllFeeds } from "@/lib/loadAllFeeds";
 import { chronological, computeHomeRanking } from "@/lib/ranking";
 
-export const revalidate = 300;
+/** Destaques + cronológico: 30 min — manter = `feedConfig.PAGE_REVALIDATE_SEC` / `DATA_FETCH_REVALIDATE_SEC` */
+export const revalidate = 1800;
+/** Fetches + og:image: margem além do 10s default da Vercel, se o plano permitir `maxDuration`. */
+export const maxDuration = 60;
 
 export default async function Page() {
-  const [hn, rdTech, rdSing, verge, tc] = await Promise.all([
-    fetchHackerNews(FEED_LIMITS.hackerNews),
-    fetchSubreddit("technews", FEED_LIMITS.redditPerSub),
-    fetchSubreddit("singularity", FEED_LIMITS.redditPerSub),
-    fetchRssFeed(RSS_FEEDS[0].url, RSS_FEEDS[0].label, FEED_LIMITS.rssPerFeed),
-    fetchRssFeed(RSS_FEEDS[1].url, RSS_FEEDS[1].label, FEED_LIMITS.rssPerFeed),
-  ]);
+  const { hn, rdTech, rdSing, verge, tc } = await loadAllFeeds();
 
   const raw = [...hn, ...rdTech, ...rdSing, ...verge, ...tc];
   const merged = await enrichItemsWithOgImages(raw);
