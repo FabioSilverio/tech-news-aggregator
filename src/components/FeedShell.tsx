@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useMemo, useState } from "react";
 import type { AggregatedItem } from "@/lib/types";
 
 type TabId = "home" | "chrono";
@@ -115,8 +116,23 @@ export function FeedShell({
   homeItems: AggregatedItem[];
   chronoItems: AggregatedItem[];
 }) {
+  const router = useRouter();
   const [tab, setTab] = useState<TabId>("home");
+  const [refreshing, setRefreshing] = useState(false);
   const list = tab === "home" ? homeItems : chronoItems;
+
+  const onHardRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/refresh", { method: "POST" });
+      if (!res.ok) throw new Error("Falha ao revalidar");
+      router.refresh();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [router]);
 
   const hotCommentIndices = useMemo(() => {
     const comments = list.map((i) => i.comments);
@@ -171,7 +187,22 @@ export function FeedShell({
           </div>
 
           <div className="flex items-center gap-2 sm:min-w-[200px] sm:justify-end">
-            <div className="hidden flex-1 items-center rounded-full bg-white/95 px-3 py-1.5 text-sm text-gray-500 sm:flex sm:max-w-xs">
+            <button
+              type="button"
+              onClick={onHardRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-white/95 px-3 py-1.5 text-sm font-semibold text-gray-800 shadow-sm hover:bg-white disabled:cursor-wait disabled:opacity-70"
+              title="Atualizar feeds agora (pega de novo HN, Reddit, RSS)"
+            >
+              <span
+                className={`inline-block ${refreshing ? "animate-spin" : ""}`}
+                aria-hidden
+              >
+                ↻
+              </span>
+              {refreshing ? "A atualizar…" : "Atualizar"}
+            </button>
+            <div className="hidden flex-1 items-center rounded-full bg-white/15 px-3 py-1.5 text-sm text-white/90 sm:flex sm:max-w-xs">
               <span className="mr-2 opacity-60">🔍</span>
               <span className="truncate">Buscar no feed…</span>
             </div>
